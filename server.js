@@ -19,12 +19,11 @@ const server = http.createServer((req, res) => {
     if (parsed.pathname === '/play' && videoId) {
         console.log(`[Play] Extrayendo audio VIP de: ${videoId}`);
         
-        // Ya solo usamos las cookies. ¡Con eso sobra para entrar!
-        // Y usamos 'bestaudio/best' por si la canción no tiene un formato normal.
+        // Pedimos el video en 360p (siempre disponible) para extraerle el audio
         youtubedl(`https://www.youtube.com/watch?v=${videoId}`, {
             dumpSingleJson: true, 
             noWarnings: true, 
-            format: 'bestaudio/best',
+            format: '18/best',
             cookies: path.join(__dirname, 'www.youtube.com_cookies.txt')
         }).then(async output => {
             if (!output.url) return res.end('Error: No URL');
@@ -35,12 +34,12 @@ const server = http.createServer((req, res) => {
                 });
                 
                 res.writeHead(proxyFetch.status, {
-                    'Content-Type': proxyFetch.headers.get('content-type') || 'audio/webm',
+                    'Content-Type': proxyFetch.headers.get('content-type') || 'video/mp4',
                     'Content-Length': proxyFetch.headers.get('content-length') || ''
                 });
                 
                 Readable.fromWeb(proxyFetch.body).pipe(res);
-                console.log(`[Play] Transmitiendo audio al 100%: ${videoId}`);
+                console.log(`[Play] Transmitiendo MP4 al MTA: ${videoId}`);
                 
                 req.on('close', () => {
                     console.log(`[Play] MTA Desconectado de: ${videoId}`);
@@ -58,4 +57,4 @@ const server = http.createServer((req, res) => {
     res.writeHead(400); res.end('Use /play?v=VIDEO_ID');
 });
 
-server.listen(PORT, () => console.log(`[HVS Radio] Helper VIP en puerto ${PORT}`));
+server.listen(PORT, () => console.log(`[HVS Radio] Helper Definitivo en puerto ${PORT}`));
