@@ -2,6 +2,7 @@ const http = require('http');
 const url = require('url');
 const youtubedl = require('youtube-dl-exec');
 const { Readable } = require('stream');
+const path = require('path');
 
 const PORT = process.env.PORT || 3000;
 
@@ -16,18 +17,21 @@ const server = http.createServer((req, res) => {
     }
     
     if (parsed.pathname === '/play' && videoId) {
-        console.log(`[Play] Engañando a YouTube para: ${videoId}`);
+        console.log(`[Play] Hackeando a YouTube para: ${videoId}`);
         
-        // Pasamos el "Pase VIP" (cookies.txt) para saltar el bloqueo de bot
+        // DOBLE TRUCO: Disfraz de Android + Ruta forzada de Cookies
         youtubedl(`https://www.youtube.com/watch?v=${videoId}`, {
-            dumpSingleJson: true, noWarnings: true, format: 'bestaudio',
-            cookies: 'cookies.txt'
+            dumpSingleJson: true, 
+            noWarnings: true, 
+            format: 'bestaudio',
+            extractorArgs: 'youtube:player_client=android',
+            cookies: path.join(__dirname, 'cookies.txt')
         }).then(async output => {
             if (!output.url) return res.end('Error: No URL');
             
             try {
                 const proxyFetch = await fetch(output.url, {
-                    headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
+                    headers: { 'User-Agent': 'Mozilla/5.0 (Linux; Android 13; SM-S908B) AppleWebKit/537.36' }
                 });
                 
                 res.writeHead(proxyFetch.status, {
@@ -54,4 +58,4 @@ const server = http.createServer((req, res) => {
     res.writeHead(400); res.end('Use /play?v=VIDEO_ID');
 });
 
-server.listen(PORT, () => console.log(`[HVS Radio] Helper final en puerto ${PORT}`));
+server.listen(PORT, () => console.log(`[HVS Radio] Helper indomable en puerto ${PORT}`));
