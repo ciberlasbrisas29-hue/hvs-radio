@@ -19,13 +19,13 @@ const server = http.createServer((req, res) => {
     if (parsed.pathname === '/play' && videoId) {
         console.log(`[Play] Hackeando a YouTube para: ${videoId}`);
         
-        // DOBLE TRUCO: Disfraz de Android + Ruta forzada de Cookies
+        // Usamos el archivo con el nombre exacto que te dio la extensión
         youtubedl(`https://www.youtube.com/watch?v=${videoId}`, {
             dumpSingleJson: true, 
             noWarnings: true, 
             format: 'bestaudio',
             extractorArgs: 'youtube:player_client=android',
-            cookies: path.join(__dirname, 'cookies.txt')
+            cookies: path.join(__dirname, 'www.youtube.com_cookies.txt')
         }).then(async output => {
             if (!output.url) return res.end('Error: No URL');
             
