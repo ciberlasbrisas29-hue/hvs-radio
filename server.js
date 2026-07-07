@@ -17,21 +17,21 @@ const server = http.createServer((req, res) => {
     }
     
     if (parsed.pathname === '/play' && videoId) {
-        console.log(`[Play] Hackeando a YouTube para: ${videoId}`);
+        console.log(`[Play] Extrayendo audio VIP de: ${videoId}`);
         
-        // Usamos el archivo con el nombre exacto que te dio la extensión
+        // Ya solo usamos las cookies. ¡Con eso sobra para entrar!
+        // Y usamos 'bestaudio/best' por si la canción no tiene un formato normal.
         youtubedl(`https://www.youtube.com/watch?v=${videoId}`, {
             dumpSingleJson: true, 
             noWarnings: true, 
-            format: 'bestaudio',
-            extractorArgs: 'youtube:player_client=android',
+            format: 'bestaudio/best',
             cookies: path.join(__dirname, 'www.youtube.com_cookies.txt')
         }).then(async output => {
             if (!output.url) return res.end('Error: No URL');
             
             try {
                 const proxyFetch = await fetch(output.url, {
-                    headers: { 'User-Agent': 'Mozilla/5.0 (Linux; Android 13; SM-S908B) AppleWebKit/537.36' }
+                    headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
                 });
                 
                 res.writeHead(proxyFetch.status, {
@@ -58,4 +58,4 @@ const server = http.createServer((req, res) => {
     res.writeHead(400); res.end('Use /play?v=VIDEO_ID');
 });
 
-server.listen(PORT, () => console.log(`[HVS Radio] Helper indomable en puerto ${PORT}`));
+server.listen(PORT, () => console.log(`[HVS Radio] Helper VIP en puerto ${PORT}`));
