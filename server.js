@@ -22,9 +22,29 @@ const CACHE_MARGIN = 300;
 // Isso substitui o antigo caminho fixo para "yt-dlp.exe", que só funcionava no Windows.
 const youtubedl = require('youtube-dl-exec');
 
-const COOKIES = path.join(__dirname, 'cookies.txt');
-const hasCookies = fs.existsSync(COOKIES);
-console.log(`[FFS Radio Helper] Cookies: ${hasCookies ? 'SIM ✓' : 'NÃO'}`);
+// Cookies opcionais: procura tanto no diretório do projeto (uso local) quanto
+// no diretório de "Secret Files" do Render (/etc/secrets), que é la forma
+// recomendada de subir un archivo sensible sin comprometerlo en el repo público.
+const COOKIE_CANDIDATES = [
+    process.env.YT_COOKIES_PATH,
+    '/etc/secrets/cookies.txt',
+    path.join(__dirname, 'cookies.txt'),
+].filter(Boolean);
+const COOKIES = COOKIE_CANDIDATES.find((p) => fs.existsSync(p)) || null;
+const hasCookies = !!COOKIES;
+console.log(`[FFS Radio Helper] Cookies: ${hasCookies ? 'SIM ✓ (' + COOKIES + ')' : 'NÃO'}`);
+
+// Clientes de YouTube a intentar. Ahora que tenemos cookies, el cliente
+// "web" por defecto ya pasa el chequeo anti-bot, así que lo priorizamos.
+// Dejamos "android" solo como red de respaldo por si las cookies vencen,
+// pero con un selector de formato mucho más permisivo (ese cliente no
+// expone streams de audio-only en m4a, así que exigir m4a ahí siempre falla).
+const ATTEMPTS = [
+    { client: null,      format: 'bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]/best[ext=mp4]/bestaudio/best' },
+    { client: null,      format: 'best' },
+    { client: 'android', format: 'best' },
+    { client: 'ios',     format: 'best' },
+];
 
 // ─── Resolver via yt-dlp (youtube-dl-exec, cross-platform) ────────────────
 function resolveStreamUrl(videoId) {
@@ -37,36 +57,45 @@ function resolveStreamUrl(videoId) {
 
         console.log(`[Resolvendo] ${videoId}`);
 
-        const opts = {
-            noWarnings: true,
-            noPlaylist: true,
-            // IMPORTANTE: MTA:SA (BASS) reproduce MP4/AAC (m4a) de forma confiable,
-            // pero tiene soporte poco confiable para WebM/Opus (lo que "bestaudio"
-            // suele elegir hoy en día en YouTube). Forzamos m4a primero.
-            format: 'bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]/best[ext=mp4]/bestaudio/best',
-            getUrl: true,
+        const tryAttempt = (index, lastErr) => {
+            if (index >= ATTEMPTS.length) {
+                return reject(lastErr || new Error('Todas as tentativas falharam'));
+            }
+            const { client, format } = ATTEMPTS[index];
+
+            const opts = {
+                noWarnings: true,
+                noPlaylist: true,
+                format,
+                getUrl: true,
+            };
+            if (client) opts.extractorArgs = `youtube:player_client=${client}`;
+            if (hasCookies) opts.cookies = COOKIES;
+
+            youtubedl(`https://www.youtube.com/watch?v=${videoId}`, opts, { timeout: 30000 })
+                .then((output) => {
+                    const streamUrl = String(output).trim().split('\n')[0];
+                    if (!streamUrl || !streamUrl.startsWith('http')) {
+                        return tryAttempt(index + 1, new Error('URL inválida retornada pelo yt-dlp'));
+                    }
+
+                    const expireMatch = streamUrl.match(/expire=(\d+)/);
+                    const expires = expireMatch ? parseInt(expireMatch[1]) : (Date.now()/1000 + 3600);
+
+                    const mimeMatch = streamUrl.match(/mime=([^&]+)/);
+                    console.log(`[Resolvido] ${videoId} | client=${client || 'web(default)'} | formato=${mimeMatch ? decodeURIComponent(mimeMatch[1]) : 'desconhecido'} | expire=${new Date(expires*1000).toISOString()}`);
+
+                    CACHE.set(videoId, { url: streamUrl, expires });
+                    resolve(streamUrl);
+                })
+                .catch((err) => {
+                    const msg = (err.stderr || err.message || String(err)).trim();
+                    console.log(`[Aviso] tentativa ${index + 1} (client=${client || 'web(default)'}, format=${format}) falhou para ${videoId}: ${msg.split('\n')[0]}`);
+                    tryAttempt(index + 1, new Error(msg));
+                });
         };
-        if (hasCookies) opts.cookies = COOKIES;
 
-        youtubedl(`https://www.youtube.com/watch?v=${videoId}`, opts, { timeout: 30000 })
-            .then((output) => {
-                const streamUrl = String(output).trim().split('\n')[0];
-                if (!streamUrl || !streamUrl.startsWith('http')) {
-                    return reject(new Error('URL inválida retornada pelo yt-dlp'));
-                }
-
-                const expireMatch = streamUrl.match(/expire=(\d+)/);
-                const expires = expireMatch ? parseInt(expireMatch[1]) : (Date.now()/1000 + 3600);
-
-                const mimeMatch = streamUrl.match(/mime=([^&]+)/);
-                console.log(`[Resolvido] ${videoId} | formato=${mimeMatch ? decodeURIComponent(mimeMatch[1]) : 'desconhecido'} | expire=${new Date(expires*1000).toISOString()}`);
-
-                CACHE.set(videoId, { url: streamUrl, expires });
-                resolve(streamUrl);
-            })
-            .catch((err) => {
-                reject(new Error((err.stderr || err.message || String(err)).trim()));
-            });
+        tryAttempt(0, null);
     });
 }
 
