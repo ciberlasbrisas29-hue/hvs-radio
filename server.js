@@ -1,6 +1,6 @@
 const http = require('http');
 const url = require('url');
-const youtubedl = require('youtube-dl-exec');
+const ytdl = require('@distube/ytdl-core');
 
 const PORT = process.env.PORT || 3000;
 
@@ -15,27 +15,37 @@ const server = http.createServer((req, res) => {
     }
     
     if (parsed.pathname === '/play' && videoId) {
-        console.log(`[Play] Reproduciendo: ${videoId}`);
-        res.writeHead(200, { 'Content-Type': 'audio/webm' });
+        console.log(`[Play] Iniciando proxy para: ${videoId}`);
         
-        const subprocess = youtubedl.exec(`https://www.youtube.com/watch?v=${videoId}`, {
-            output: '-',
-            format: 'bestaudio[ext=webm]/bestaudio',
-            noWarnings: true
-        });
-
-        subprocess.stdout.pipe(res);
-        
-        // EVITAR CRASHEOS: Si se cancela la descarga o el MTA se desconecta, ignoramos el error
-        subprocess.catch(err => {
-            console.log(`[Aviso] Stream detenido o cancelado para ${videoId}`);
-        });
-
-        // Si el jugador apaga la radio, matamos el proceso para no gastar RAM
-        req.on('close', () => {
-            console.log(`[Play] Cliente MTA desconectado: ${videoId}`);
-            subprocess.kill('SIGTERM');
-        });
+        try {
+            // Usamos ytdl-core para obtener el stream limpio
+            const stream = ytdl(`https://www.youtube.com/watch?v=${videoId}`, { 
+                filter: 'audioonly', 
+                quality: 'highestaudio' 
+            });
+            
+            // Cuando obtenemos la info, le enviamos las cabeceras exactas al GTA
+            stream.on('info', (info, format) => {
+                res.writeHead(200, {
+                    'Content-Type': format.mimeType,
+                    'Content-Length': format.contentLength || '',
+                    'Accept-Ranges': 'bytes'
+                });
+            });
+            
+            // Enviamos la música al cliente
+            stream.pipe(res);
+            
+            stream.on('error', (err) => console.log(`[Aviso] ytdl: ${err.message}`));
+            
+            req.on('close', () => {
+                console.log(`[Play] MTA desconectado / Cancion finalizada: ${videoId}`);
+                stream.destroy();
+            });
+        } catch(err) {
+            console.log(`[Error] ${err.message}`);
+            res.end();
+        }
         return;
     }
     res.writeHead(400); res.end('Use /play?v=VIDEO_ID');
