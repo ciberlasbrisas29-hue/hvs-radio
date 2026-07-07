@@ -6,6 +6,6 @@
     "start": "node server.js"
   },
   "dependencies": {
-    "@distube/ytdl-core": "^4.14.4"
+    "youtube-dl-exec": "^2.4.15"
   }
 }
