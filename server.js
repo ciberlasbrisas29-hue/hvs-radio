@@ -40,10 +40,12 @@ console.log(`[FFS Radio Helper] Cookies: ${hasCookies ? 'SIM ✓ (' + COOKIES + 
 // pero con un selector de formato mucho más permisivo (ese cliente no
 // expone streams de audio-only en m4a, así que exigir m4a ahí siempre falla).
 const ATTEMPTS = [
-    { client: null,      format: 'bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]/best[ext=mp4]/bestaudio/best' },
-    { client: null,      format: 'best' },
-    { client: 'android', format: 'best' },
-    { client: 'ios',     format: 'best' },
+    { client: null,        format: 'bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]/best[ext=mp4]/bestaudio/best' },
+    { client: null,        format: 'best' },
+    { client: 'android',   format: 'best' },
+    { client: 'ios',       format: 'best' },
+    { client: 'tv_simply', format: 'best' },
+    { client: 'mweb',      format: 'best' },
 ];
 
 // ─── Resolver via yt-dlp (youtube-dl-exec, cross-platform) ────────────────
@@ -66,6 +68,7 @@ function resolveStreamUrl(videoId) {
             const opts = {
                 noWarnings: true,
                 noPlaylist: true,
+                jsRuntimes: 'node',
                 format,
                 getUrl: true,
             };
