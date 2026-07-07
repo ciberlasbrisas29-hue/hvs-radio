@@ -18,7 +18,6 @@ const server = http.createServer((req, res) => {
         console.log(`[Play] Reproduciendo: ${videoId}`);
         res.writeHead(200, { 'Content-Type': 'audio/webm' });
         
-        // Descarga el audio en WebM y lo envía como radio en vivo al juego
         const subprocess = youtubedl.exec(`https://www.youtube.com/watch?v=${videoId}`, {
             output: '-',
             format: 'bestaudio[ext=webm]/bestaudio',
@@ -27,8 +26,14 @@ const server = http.createServer((req, res) => {
 
         subprocess.stdout.pipe(res);
         
+        // EVITAR CRASHEOS: Si se cancela la descarga o el MTA se desconecta, ignoramos el error
+        subprocess.catch(err => {
+            console.log(`[Aviso] Stream detenido o cancelado para ${videoId}`);
+        });
+
+        // Si el jugador apaga la radio, matamos el proceso para no gastar RAM
         req.on('close', () => {
-            console.log(`[Play] Cliente desconectado: ${videoId}`);
+            console.log(`[Play] Cliente MTA desconectado: ${videoId}`);
             subprocess.kill('SIGTERM');
         });
         return;
