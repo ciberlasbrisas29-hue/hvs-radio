@@ -1,6 +1,7 @@
 /**
- * FFS Radio - Helper Server (yt-dlp edition)
- * Coloque yt-dlp.exe nesta mesma pasta.
+ * FFS Radio - Helper Server (yt-dlp edition, via youtube-dl-exec)
+ * Não requer binário manual: youtube-dl-exec descarga o yt-dlp
+ * correto para o SO automaticamente durante "npm install"/"yarn install".
  * Opcional: cookies.txt exportado do YouTube
  *
  * Rodar: node server.js
@@ -10,27 +11,22 @@ const http  = require('http');
 const url   = require('url');
 const fs    = require('fs');
 const path  = require('path');
-const { execFile } = require('child_process');
 
 const PORT         = process.env.SERVER_PORT || 26112; // Pterodactyl usa SERVER_PORT
 const HOST         = '0.0.0.0';
 const CACHE        = new Map();
 const CACHE_MARGIN = 300;
 
-const YTDLP = path.join(__dirname, 'yt-dlp.exe');
-
-if (!fs.existsSync(YTDLP)) {
-    console.error('[FFS Radio Helper] ERRO: yt-dlp.exe não encontrado!');
-    console.error('[FFS Radio Helper] Baixe em: https://github.com/yt-dlp/yt-dlp/releases/latest');
-    process.exit(1);
-}
-console.log('[FFS Radio Helper] yt-dlp.exe encontrado!');
+// youtube-dl-exec baixa e gerencia o binário correto do yt-dlp para o SO onde
+// o processo está rodando (Windows .exe localmente, binário Linux no Render/Pterodactyl).
+// Isso substitui o antigo caminho fixo para "yt-dlp.exe", que só funcionava no Windows.
+const youtubedl = require('youtube-dl-exec');
 
 const COOKIES = path.join(__dirname, 'cookies.txt');
 const hasCookies = fs.existsSync(COOKIES);
 console.log(`[FFS Radio Helper] Cookies: ${hasCookies ? 'SIM ✓' : 'NÃO'}`);
 
-// ─── Resolver via yt-dlp ──────────────────────────────────
+// ─── Resolver via yt-dlp (youtube-dl-exec, cross-platform) ────────────────
 function resolveStreamUrl(videoId) {
     return new Promise((resolve, reject) => {
         const cached = CACHE.get(videoId);
@@ -41,41 +37,36 @@ function resolveStreamUrl(videoId) {
 
         console.log(`[Resolvendo] ${videoId}`);
 
-        const args = [
-            '--no-warnings',
-            '--no-playlist',
-            '--js-runtimes', 'node',
+        const opts = {
+            noWarnings: true,
+            noPlaylist: true,
             // IMPORTANTE: MTA:SA (BASS) reproduce MP4/AAC (m4a) de forma confiable,
-            // pero tiene soporte poco confiable para WebM/Opus (que es lo que
-            // "bestaudio/best" suele elegir en YouTube hoy en día). Forzamos m4a
-            // primero y solo caemos a otro formato si de verdad no existe m4a.
-            '-f', 'bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]/best[ext=mp4]/bestaudio/best',
-            '--get-url',
-        ];
+            // pero tiene soporte poco confiable para WebM/Opus (lo que "bestaudio"
+            // suele elegir hoy en día en YouTube). Forzamos m4a primero.
+            format: 'bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]/best[ext=mp4]/bestaudio/best',
+            getUrl: true,
+        };
+        if (hasCookies) opts.cookies = COOKIES;
 
-        if (hasCookies) args.push('--cookies', COOKIES);
+        youtubedl(`https://www.youtube.com/watch?v=${videoId}`, opts, { timeout: 30000 })
+            .then((output) => {
+                const streamUrl = String(output).trim().split('\n')[0];
+                if (!streamUrl || !streamUrl.startsWith('http')) {
+                    return reject(new Error('URL inválida retornada pelo yt-dlp'));
+                }
 
-        args.push(`https://www.youtube.com/watch?v=${videoId}`);
+                const expireMatch = streamUrl.match(/expire=(\d+)/);
+                const expires = expireMatch ? parseInt(expireMatch[1]) : (Date.now()/1000 + 3600);
 
-        execFile(YTDLP, args, { timeout: 30000 }, (err, stdout, stderr) => {
-            if (err) {
-                return reject(new Error(stderr.trim() || err.message));
-            }
+                const mimeMatch = streamUrl.match(/mime=([^&]+)/);
+                console.log(`[Resolvido] ${videoId} | formato=${mimeMatch ? decodeURIComponent(mimeMatch[1]) : 'desconhecido'} | expire=${new Date(expires*1000).toISOString()}`);
 
-            const streamUrl = stdout.trim().split('\n')[0];
-            if (!streamUrl || !streamUrl.startsWith('http')) {
-                return reject(new Error('URL inválida retornada pelo yt-dlp'));
-            }
-
-            const expireMatch = streamUrl.match(/expire=(\d+)/);
-            const expires = expireMatch ? parseInt(expireMatch[1]) : (Date.now()/1000 + 3600);
-
-            const mimeMatch = streamUrl.match(/mime=([^&]+)/);
-            console.log(`[Resolvido] ${videoId} | formato=${mimeMatch ? decodeURIComponent(mimeMatch[1]) : 'desconhecido'} | expire=${new Date(expires*1000).toISOString()}`);
-
-            CACHE.set(videoId, { url: streamUrl, expires });
-            resolve(streamUrl);
-        });
+                CACHE.set(videoId, { url: streamUrl, expires });
+                resolve(streamUrl);
+            })
+            .catch((err) => {
+                reject(new Error((err.stderr || err.message || String(err)).trim()));
+            });
     });
 }
 
